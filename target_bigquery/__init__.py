@@ -36,7 +36,19 @@ def get_or_create_dataset(client, project_id, dataset_name, location="US"):
 
 
 def get_or_create_table(client, project_id, dataset_name, table_name, schema,
-                        partition_by):
+                        partition_by, partition_type="day"):
+    # https://googleapis.dev/python/bigquery/latest/generated/google.cloud.bigquery.table.TimePartitioningType.html#google-cloud-bigquery-table-timepartitioningtype
+    time_partition_types = {
+        "year": bigquery.TimePartitioningType.YEAR,
+        "month": bigquery.TimePartitioningType.MONTH,
+        "day": bigquery.TimePartitioningType.DAY,
+        "hour": bigquery.TimePartitioningType.HOUR,
+    }
+    if partition_type not in time_partition_types.keys():
+        raise ValueError(
+            f"{partition_type} is not a valid time parition type. " +
+            f"Supported time-parition types {time_partition_types}")
+    time_partition_type = time_partition_types[partition_type]
     table_id = "%s.%s.%s" % (project_id, dataset_name, table_name)
     try:
         table = client.get_table(table_id)
@@ -46,7 +58,7 @@ def get_or_create_table(client, project_id, dataset_name, table_name, schema,
         if partition_by:
             logger.info("Creating a partitioned table")
             table.time_partitioning = bigquery.TimePartitioning(
-                type_=bigquery.TimePartitioningType.DAY,
+                type_=time_partition_type,
                 field=partition_by,  # name of column to use for partitioning
                 # expiration_ms=7776000000,  # 90 days
             )
@@ -64,7 +76,7 @@ def get_or_create_table(client, project_id, dataset_name, table_name, schema,
 
 def write_records(project_id, dataset_name, lines=None,
                   stream=False, on_invalid_record="abort", partition_by=None,
-                  numeric_type="NUMERIC"):
+                  partition_type="day", numeric_type="NUMERIC"):
     if on_invalid_record not in ("abort", "skip", "force"):
         raise ValueError("on_invalid_record must be one of" +
                          " (abort, skip, force)")
@@ -140,7 +152,8 @@ def write_records(project_id, dataset_name, lines=None,
                                                      dataset_name,
                                                      table_name,
                                                      bq_schema,
-                                                     partition_by)
+                                                     partition_by,
+                                                     partiion_type)
             if stream:
                 # Ensure the table is created before streaming...
                 time.sleep(3)
@@ -242,6 +255,7 @@ def main():
                           stream=config.get("stream", False),
                           on_invalid_record=on_invalid_record,
                           partition_by=config.get("partition_by"),
+                          partition_type=config.get("partition_type", "day"),
                           numeric_type=config.get("numeric_type", "NUMERIC"))
 
     _emit_state(state)
